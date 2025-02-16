@@ -13,6 +13,8 @@ class CmdVelRemapper(Node):
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=10
         )
+        
+        self.declare_parameter('vel_topic', 'bcr_bot/cmd_vel')
 
         # Create a subscriber for the cmd_vel topic
         self.subscription = self.create_subscription(
@@ -24,7 +26,8 @@ class CmdVelRemapper(Node):
         self.subscription  # Prevent unused variable warning
 
         # Create a publisher for the bcr_bot/cmd_vel topic
-        self.publisher = self.create_publisher(Twist, 'bcr_bot/cmd_vel', qos_profile)
+        vel_topic = self.get_parameter('vel_topic').get_parameter_value().string_value
+        self.publisher = self.create_publisher(Twist, vel_topic, qos_profile)
 
     def cmd_vel_callback(self, msg):
         # Republish the received message to bcr_bot/cmd_vel

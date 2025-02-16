@@ -5,7 +5,7 @@ from xacro import parse, process_doc
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration, Command, PythonExpression
 
 from launch_ros.actions import Node
 
@@ -26,6 +26,7 @@ def generate_launch_description():
     stereo_camera_enabled = LaunchConfiguration("stereo_camera_enabled", default=False)
     two_d_lidar_enabled = LaunchConfiguration("two_d_lidar_enabled", default=True)
     odometry_source = LaunchConfiguration("odometry_source")
+    bot_name = LaunchConfiguration("bot_name")
 
     # robot_description_content = get_xacro_to_doc(
     #     join(bcr_bot_path, "urdf", "bcr_bot.xacro"),
@@ -43,6 +44,7 @@ def generate_launch_description():
         parameters=[
                     {'robot_description': Command( \
                     ['xacro ', join(bcr_bot_path, 'urdf/bcr_bot.xacro'),
+                    ' robot_namespace:=', bot_name,
                     ' camera_enabled:=', camera_enabled,
                     ' stereo_camera_enabled:=', stereo_camera_enabled,
                     ' two_d_lidar_enabled:=', two_d_lidar_enabled,
@@ -50,7 +52,7 @@ def generate_launch_description():
                     ' sim_ign:=', "true"
                     ])}],
         remappings=[
-            ('/joint_states', 'bcr_bot/joint_states'),
+            ('/joint_states', PythonExpression(["'", bot_name, "/joint_states'"])),
         ]
     )
 
@@ -59,7 +61,7 @@ def generate_launch_description():
         executable="create",
         arguments=[
             "-topic", "/robot_description",
-            "-name", "bcr_bot",
+            "-name", bot_name,
             "-allow_renaming", "true",
             "-z", "0.28",
             "-x", position_x,
@@ -88,18 +90,18 @@ def generate_launch_description():
             "/world/default/model/bcr_bot/joint_state@sensor_msgs/msg/JointState[ignition.msgs.Model"
         ],
         remappings=[
-            ('/world/default/model/bcr_bot/joint_state', 'bcr_bot/joint_states'),
-            ('/odom', 'bcr_bot/odom'),
-            ('/scan', 'bcr_bot/scan'),
-            ('/kinect_camera', 'bcr_bot/kinect_camera'),
-            ('/stereo_camera/left/image_raw', 'bcr_bot/stereo_camera/left/image_raw'),
-            ('/stereo_camera/right/image_raw', 'bcr_bot/stereo_camera/right/image_raw'),
-            ('/imu', 'bcr_bot/imu'),
-            ('/cmd_vel', 'bcr_bot/cmd_vel'),
-            ('kinect_camera/camera_info', 'bcr_bot/kinect_camera/camera_info'),
-            ('stereo_camera/left/camera_info', 'bcr_bot/stereo_camera/left/camera_info'),
-            ('stereo_camera/right/camera_info', 'bcr_bot/stereo_camera/right/camera_info'),
-            ('/kinect_camera/points', 'bcr_bot/kinect_camera/points'),
+            ('/world/default/model/bcr_bot/joint_state', PythonExpression(["'", bot_name, "/joint_states'"])),
+            ('/odom', PythonExpression(["'", bot_name, "/odom'"])),
+            ('/scan', PythonExpression(["'", bot_name, "/scan'"])),
+            ('/kinect_camera', PythonExpression(["'", bot_name, "/kinect_camera'"])),
+            ('/stereo_camera/left/image_raw', PythonExpression(["'", bot_name, "/stereo_camera/left/image_raw'"])),
+            ('/stereo_camera/right/image_raw', PythonExpression(["'", bot_name, "/stereo_camera/right/image_raw'"])),
+            ('/imu', PythonExpression(["'", bot_name, "/imu'"])),
+            ('/cmd_vel', PythonExpression(["'", bot_name, "/cmd_vel'"])),
+            ('kinect_camera/camera_info', PythonExpression(["'", bot_name, "/kinect_camera/camera_info'"])),
+            ('stereo_camera/left/camera_info', PythonExpression(["'", bot_name, "/stereo_camera/left/camera_info'"])),
+            ('stereo_camera/right/camera_info', PythonExpression(["'", bot_name, "/stereo_camera/right/camera_info'"])),
+            ('/kinect_camera/points', PythonExpression(["'", bot_name, "/kinect_camera/points'"])),
         ]
     )
 
@@ -113,7 +115,7 @@ def generate_launch_description():
                     "--pitch", "0.0",
                     "--roll", "0.0",
                     "--frame-id", "kinect_camera",
-                    "--child-frame-id", "bcr_bot/base_footprint/kinect_camera"]
+                    "--child-frame-id", PythonExpression(["'", bot_name, "/base_footprint/kinect_camera'"])]
     )
 
     return LaunchDescription([
@@ -124,6 +126,7 @@ def generate_launch_description():
         DeclareLaunchArgument("position_y", default_value="0.0"),
         DeclareLaunchArgument("orientation_yaw", default_value="0.0"),
         DeclareLaunchArgument("odometry_source", default_value="world"),
+        DeclareLaunchArgument("bot_name", default_value = "bcr_boto"),
         robot_state_publisher,
         gz_spawn_entity, transform_publisher, gz_ros2_bridge
     ])

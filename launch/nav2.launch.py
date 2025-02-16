@@ -68,6 +68,10 @@ def generate_launch_description():
         executable='remapper.py',
         name='remapper',
         output='screen',
+        
+        parameters=[{
+            'vel_topic' : 'bcr_boto/cmd_vel'
+            }]
     )
 
     ld = LaunchDescription()
