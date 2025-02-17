@@ -1,63 +1,83 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PoseArray, Pose
-from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseArray, Pose
+from nav_msgs.msg import Odometry, Path, OccupancyGrid
+from map_msgs.msg import OccupancyGridUpdate
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-class MultiAMRPublisher(Node):
+class MultiAMRManager(Node):
     def __init__(self):
-        super().__init__('multi_amr_publisher')
+        super().__init__('multi_amr_manager')
 
-        # QoS profile for subscribing to Nav2 topics
-        self.qos_profile = QoSProfile(
+        qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
 
+        # Publishers for aggregated pose, path, and map data
         self.poses_publisher = self.create_publisher(PoseArray, '/all_amrs/poses', 10)
         self.paths_publisher = self.create_publisher(Path, '/all_amrs/paths', 10)
+        self.map_publisher = self.create_publisher(OccupancyGrid, '/all_amrs/map', 10)
 
+        # Data storage
         self.robot_poses = {}  # Stores latest pose of each robot
         self.robot_paths = {}  # Stores latest path of each robot
-        self.subscriptions = {}  # Tracks active subscriptions
+        self.subscribed_robots = {}  # Tracks active subscriptions
 
-        # Scan for new robots every 5 seconds
-        self.create_timer(5.0, self.discover_robots)
-        self.create_timer(0.5, self.publish_data)  # Publish data at 2Hz
+        # Map storage
+        self.global_map = None
 
-    def discover_robots(self):
-        """Scans for active AMRs by detecting pose and path topics."""
-        topic_names_and_types = self.get_topic_names_and_types()
-        detected_robots = set()
+        # Subscribe to known topics
+        self.subscribe_robot("bcr_boto", "/bcr_boto/odom", "/plan", qos_profile)
 
-        for topic, types in topic_names_and_types:
-            if 'geometry_msgs/msg/PoseStamped' in types and topic.endswith('/pose'):
-                robot_name = topic.split('/')[1]
-                detected_robots.add(robot_name)
+        # Subscribe to map topics
+        self.create_subscription(OccupancyGrid, "/map", self.map_callback, qos_profile)
+        self.create_subscription(OccupancyGridUpdate, "/map_updates", self.map_update_callback, qos_profile)
 
-                if robot_name not in self.subscriptions:
-                    self.robot_poses[robot_name] = None
-                    self.robot_paths[robot_name] = None
+        # Publish aggregated data at 10 Hz
+        self.create_timer(0.1, self.publish_data)
 
-                    self.subscriptions[robot_name] = [
-                        self.create_subscription(
-                            PoseStamped, f'/{robot_name}/pose', lambda msg, rn=robot_name: self.pose_callback(msg, rn), self.qos_profile),
-                        self.create_subscription(
-                            Path, f'/{robot_name}/path', lambda msg, rn=robot_name: self.path_callback(msg, rn), self.qos_profile)
-                    ]
-                    self.get_logger().info(f"Subscribed to {robot_name}")
+    def subscribe_robot(self, robot_name, odom_topic, path_topic, qos_profile):
+        """Subscribes to the given odometry and path topics of a robot."""
+        if robot_name not in self.subscribed_robots:
+            self.robot_poses[robot_name] = None
+            self.robot_paths[robot_name] = None
 
-    def pose_callback(self, msg, robot_name):
-        """Stores the latest pose of each robot."""
-        self.robot_poses[robot_name] = msg.pose
+            self.subscribed_robots[robot_name] = [
+                self.create_subscription(Odometry, odom_topic, lambda msg, rn=robot_name: self.odom_callback(msg, rn), qos_profile),
+                self.create_subscription(Path, path_topic, lambda msg, rn=robot_name: self.path_callback(msg, rn), qos_profile)
+            ]
+            self.get_logger().info(f"Subscribed to {robot_name} on {odom_topic} and {path_topic}")
+
+    def odom_callback(self, msg, robot_name):
+        """Extracts the pose from Odometry and stores it."""
+        self.robot_poses[robot_name] = msg.pose.pose
 
     def path_callback(self, msg, robot_name):
-        """Stores the latest path of each robot."""
+        """Stores the received path."""
         self.robot_paths[robot_name] = msg
 
+    def map_callback(self, msg):
+        """Receives the static map and stores it."""
+        self.global_map = msg
+        self.get_logger().info("Received initial map.")
+
+    def map_update_callback(self, msg):
+        """Updates the stored map with new occupancy grid data."""
+        if self.global_map is None:
+            self.get_logger().warn("Received map update before global map was received.")
+            return
+
+        # Apply updates to the existing map
+        index = msg.y * self.global_map.info.width + msg.x
+        for i in range(msg.width * msg.height):
+            self.global_map.data[index + i] = msg.data[i]
+
+        self.get_logger().info("Updated map with new data.")
+
     def publish_data(self):
-        """Publishes collected poses and paths to aggregated topics."""
+        """Publishes aggregated pose, path, and map data."""
         pose_array_msg = PoseArray()
         pose_array_msg.header.stamp = self.get_clock().now().to_msg()
         pose_array_msg.header.frame_id = 'map'
@@ -68,7 +88,6 @@ class MultiAMRPublisher(Node):
 
         self.poses_publisher.publish(pose_array_msg)
 
-        # Merge all paths into one message
         path_msg = Path()
         path_msg.header.stamp = self.get_clock().now().to_msg()
         path_msg.header.frame_id = 'map'
@@ -79,10 +98,13 @@ class MultiAMRPublisher(Node):
 
         self.paths_publisher.publish(path_msg)
 
+        # Publish the stored map
+        if self.global_map:
+            self.map_publisher.publish(self.global_map)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MultiAMRPublisher()
+    node = MultiAMRManager()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
